@@ -1,10 +1,12 @@
 const puppeteer = require('puppeteer');
 const jobBoardWebsites = require('./job-board-websites.js');
+const exportJobsToFile = require('./export-to-Excel.js');
+
 require('dotenv').config();
 
 
 const jobTitle = "Front End Developer";
-const jobLocation = "United States";
+const jobLocation = "New Hampshire, United States";
 
 (async () => {
     const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--window-size=1620,900'], });
@@ -16,15 +18,16 @@ const jobLocation = "United States";
 
     await linkedInJobs24Hours(page, jobTitle, jobLocation, 0);
     await new Promise(r => setTimeout(r, 5000));
-    await scrapeJobs(page, browser);
+    let jobs = await scrapeJobs(page, browser);
+    exportJobsToFile(jobs);
     // await glassDoorLogin(page);
     // await queryGlassDoorJobs(page);
     // await indeedJobs24Hours(page);
     // await googleJobs24Hours(page);
 
 
-    // await new Promise(r => setTimeout(r, 3000));
-    // await browser.close();
+    await new Promise(r => setTimeout(r, 3000));
+    await browser.close();
 })();
 
 async function linkedInJobs24Hours(page, title, location, start) {
@@ -32,11 +35,11 @@ async function linkedInJobs24Hours(page, title, location, start) {
     let queryLocation = location.replaceAll(' ', '%20').replaceAll(',', '%2C');
 
     if (start === 0) {
-        await page.goto(`https://www.linkedin.com/jobs/search/?keywords=${queryTitle}&location=${queryLocation}&f_TPR=r86400&refresh=true`, {
+        await page.goto(`https://www.linkedin.com/jobs/search/?keywords=${queryTitle}&location=${queryLocation}&f_TPR=r86400&refresh=true&f_E=2`, {
             waitUntil: "domcontentloaded",
         });
     } else {
-        await page.goto(`https://www.linkedin.com/jobs/search/?keywords=${queryTitle}&location=${queryLocation}&f_TPR=r86400&refresh=true&start=${start}`, {
+        await page.goto(`https://www.linkedin.com/jobs/search/?keywords=${queryTitle}&location=${queryLocation}&f_TPR=r86400&refresh=true&start=${start}&f_E=2`, {
             waitUntil: "domcontentloaded",
         });
     }
@@ -46,6 +49,8 @@ async function linkedInJobs24Hours(page, title, location, start) {
 }
 async function scrapeJobs(page, browser) {
     //listContainer, cardContainer, jobTitle, jobLocation, companyName, applyNowButton, jobDescription
+
+    let jobObjectsArr = [];
 
 
 
@@ -68,44 +73,55 @@ async function scrapeJobs(page, browser) {
         return document.querySelectorAll('#main > div > div.scaffold-layout__list > div > ul > li').length
     });
     let pageNumber = 1;
+    let totalJobsScraped = 1;
 
 
 
 
     for (let i = 1; i <= listLimit; i++) {
 
-        let listElement = `${listContainer} > li:nth-child(${i})`;
-        console.log(listElement)
-
-
-
         await page.click(`${listContainer} > li:nth-child(${i})`);
         console.log("list item " + i)
         await new Promise(r => setTimeout(r, 5000));
+        totalJobsScraped += 1;
+
+        if ((totalJobsScraped > listLimit) === true) {
+            break;
+        }
 
 
-        // let element = await page.waitForSelector(applyButtonSelector);
-        // let applyButtonText = await element.evaluate(el => el.textContent);
+        let element = await page.waitForSelector(applyButtonSelector);
+        let applyButtonText = await element.evaluate(el => el.textContent);
 
-        // // Job Title
-        // let cardJobTitle = await page.evaluate((cardContainer) => {
-        //     return document.querySelector(`${cardContainer} h2`).innerText;
-        // }, cardContainer)
-        // console.log(cardJobTitle)
-        // if (applyButtonText.trim() === "Easy Apply") {
-        //     console.log("easy found")
-        //     await new Promise(r => setTimeout(r, 2000));
-        //     continue;
-        // } else {
-        //     console.log('else')
+        // Job Title
+        let cardJobTitle = await page.evaluate((cardContainer) => {
+            return document.querySelector(`${cardContainer} h2`).innerText;
+        }, cardContainer)
+        // Company Name
+        const jobInformation = await page.evaluate(() => {
+            return document.querySelector('div.jobs-unified-top-card__primary-description').innerText.split('·');
 
-        //     await page.click(applyButtonSelector);
-        //     await new Promise(r => setTimeout(r, 7000));
-        //     const pages = await browser.pages()
-        //     const applyLink = pages[2].url();
-        //     console.log(applyLink);
-        //     await pages[2].close();
-        // }
+        })
+        if (applyButtonText.trim() === "Easy Apply") {
+
+            await new Promise(r => setTimeout(r, 2000));
+        } else {
+
+            await new Promise(r => setTimeout(r, 2000));
+            await page.click(applyButtonSelector);
+            await new Promise(r => setTimeout(r, 7000));
+            const pages = await browser.pages()
+            const applyLink = pages[2].url();
+            await pages[2].close();
+
+
+
+
+            jobObjectsArr.push({
+                title: cardJobTitle, companyName: jobInformation[0].trim(), location: jobInformation[1].trim(), numOfApplicants: jobInformation[2].trim(), apply: applyLink
+            })
+        }
+
         if (i === numOfListItems) {
             linkedInJobs24Hours(page, jobTitle, jobLocation, pageNumber * 25)
             await new Promise(r => setTimeout(r, 5000));
@@ -115,7 +131,9 @@ async function scrapeJobs(page, browser) {
             numOfListItems = await page.evaluate(() => {
                 return document.querySelectorAll('#main > div > div.scaffold-layout__list > div > ul > li').length
             });
-            console.log(numOfListItems)
+
+
+
             await new Promise(r => setTimeout(r, 5000));
 
         }
@@ -124,14 +142,10 @@ async function scrapeJobs(page, browser) {
 
     }
 
-    // // Company Name
-    // const jobInformation = document.querySelector('div.jobs-unified-top-card__primary-description').innerText;
-    // let infoArray = jobInformation.split('·');
 
 
 
-
-
+    return jobObjectsArr;
 
 
 }
