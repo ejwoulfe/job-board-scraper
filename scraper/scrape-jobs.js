@@ -6,7 +6,7 @@ require('dotenv').config();
 
 
 const jobTitle = "Front End Developer";
-const jobLocation = "New Hampshire, United States";
+const jobLocation = "Florida, United States";
 
 (async () => {
     const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--window-size=1620,900'], });
@@ -18,14 +18,9 @@ const jobLocation = "New Hampshire, United States";
 
     await linkedInJobs24Hours(page, jobTitle, jobLocation, 0);
     await new Promise(r => setTimeout(r, 5000));
+
     let jobs = await scrapeJobs(page, browser);
     exportJobsToFile(jobs);
-    // await glassDoorLogin(page);
-    // await queryGlassDoorJobs(page);
-    // await indeedJobs24Hours(page);
-    // await googleJobs24Hours(page);
-
-
     await new Promise(r => setTimeout(r, 3000));
     await browser.close();
 })();
@@ -43,6 +38,10 @@ async function linkedInJobs24Hours(page, title, location, start) {
             waitUntil: "domcontentloaded",
         });
     }
+
+    // await page.goto(`https://www.linkedin.com/jobs/search/?keywords=${queryTitle}&location=${queryLocation}&f_TPR=r86400&refresh=true&start=50&f_E=2`, {
+    //     waitUntil: "domcontentloaded",
+    // });
 
 
 
@@ -62,6 +61,7 @@ async function scrapeJobs(page, browser) {
 
 
 
+
     const listLimit = await page.evaluate(() => {
         let numOfResults = document.querySelector("#main > div > div.scaffold-layout__list > header > div.jobs-search-results-list__title-heading > small > div > span").innerText;
         return Number(numOfResults.split(' ')[0].replace(',', ''));
@@ -73,59 +73,83 @@ async function scrapeJobs(page, browser) {
         return document.querySelectorAll('#main > div > div.scaffold-layout__list > div > ul > li').length
     });
     let pageNumber = 1;
-    let totalJobsScraped = 1;
+    let totalJobsScraped = 0;
 
 
 
 
     for (let i = 1; i <= listLimit; i++) {
 
-        await page.click(`${listContainer} > li:nth-child(${i})`);
-        console.log("list item " + i)
-        await new Promise(r => setTimeout(r, 5000));
-        totalJobsScraped += 1;
+        console.log("i: " + i)
+        await page.evaluate((listContainer, i) => {
+            document.querySelector(`${listContainer} > li:nth-child(${i})`).scrollIntoView();
+        }, listContainer, i)
 
-        if ((totalJobsScraped > listLimit) === true) {
+        await page.click(`${listContainer} > li:nth-child(${i})`);
+        await new Promise(r => setTimeout(r, 2000));
+        totalJobsScraped += 1;
+        console.log(totalJobsScraped)
+
+        if ((totalJobsScraped >= listLimit) === true) {
             break;
         }
 
 
-        let element = await page.waitForSelector(applyButtonSelector);
-        let applyButtonText = await element.evaluate(el => el.textContent);
+
+
 
         // Job Title
         let cardJobTitle = await page.evaluate((cardContainer) => {
             return document.querySelector(`${cardContainer} h2`).innerText;
         }, cardContainer)
-        // Company Name
-        const jobInformation = await page.evaluate(() => {
-            return document.querySelector('div.jobs-unified-top-card__primary-description').innerText.split('·');
+
+        const promoted = await page.evaluate(() => {
+            return document.querySelector('div > div.job-card-container.relative.job-card-list.job-card-container--clickable.job-card-list--underline-title-on-hover.jobs-search-results-list__list-item--active > ul').innerText
 
         })
-        if (applyButtonText.trim() === "Easy Apply") {
 
+
+
+        const jobInformation = await page.evaluate(() => {
+            return document.querySelector('div.jobs-unified-top-card__primary-description').innerText.split('  ');
+
+        })
+        let companyName = jobInformation[0];
+        console.log(companyName)
+
+        if (promoted.trim() === "Promoted" || promoted.trim() === "Expired" || promoted.trim().includes('Easy Apply')) {
             await new Promise(r => setTimeout(r, 2000));
+
+        } else if (companyName.trim() === "Dice") {
+            await new Promise(r => setTimeout(r, 2000));
+
         } else {
 
             await new Promise(r => setTimeout(r, 2000));
             await page.click(applyButtonSelector);
             await new Promise(r => setTimeout(r, 7000));
             const pages = await browser.pages()
-            const applyLink = pages[2].url();
-            await pages[2].close();
+            console.log(pages[2])
+            if (pages[2] !== undefined) {
+                const applyLink = pages[2].url();
+                await pages[2].close();
+                console.log(jobInformation)
+                jobObjectsArr.push({
+                    title: cardJobTitle, companyName: jobInformation[0]?.trim(), location: jobInformation[1]?.trim(), numOfApplicants: jobInformation[2]?.trim(), apply: applyLink
+                })
+            }
 
 
 
 
-            jobObjectsArr.push({
-                title: cardJobTitle, companyName: jobInformation[0].trim(), location: jobInformation[1].trim(), numOfApplicants: jobInformation[2].trim(), apply: applyLink
-            })
+
         }
 
         if (i === numOfListItems) {
             linkedInJobs24Hours(page, jobTitle, jobLocation, pageNumber * 25)
             await new Promise(r => setTimeout(r, 5000));
             pageNumber += 1;
+            console.log(pageNumber)
 
             i = 0;
             numOfListItems = await page.evaluate(() => {
